@@ -26,6 +26,8 @@ class GeocodingService:
         if self._cache_file is None:
             with current_app.app_context():
                 self._cache_file = os.path.join(current_app.config['UPLOAD_FOLDER'], 'geocoding_cache.json')
+                # Load cache when accessing cache_file for the first time
+                self._cache = self._load_cache()
         return self._cache_file
     
     def _load_cache(self) -> Dict:
@@ -40,25 +42,24 @@ class GeocodingService:
     
     def _save_cache(self):
         """Save geocoding cache to file."""
-        os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-        with open(self.cache_file, 'w') as f:
-            json.dump(self._cache, f)
+        try:
+            os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+            with open(self.cache_file, 'w') as f:
+                json.dump(self._cache, f)
+        except Exception as e:
+            current_app.logger.error(f"Error saving geocoding cache: {str(e)}")
     
     def geocode(self, address: str) -> Optional[Dict]:
         """Geocode an address to get its coordinates."""
-        if address in self._cache:
-            return self._cache[address]
-        
         try:
             location = self.provider.geocode(address)
             if location:
                 result = {
-                    'latitude': location.latitude,
-                    'longitude': location.longitude,
-                    'address': location.address
+                    'lat': location.latitude,
+                    'lng': location.longitude,
+                    'formatted_address': location.address,
+                    'raw': location.raw
                 }
-                self._cache[address] = result
-                self._save_cache()
                 return result
             return None
         except GeocoderTimedOut:
@@ -67,7 +68,7 @@ class GeocodingService:
         except Exception as e:
             current_app.logger.error(f"Geocoding error for address {address}: {str(e)}")
             return None
-
+    
     def reverse_geocode(self, latitude: float, longitude: float) -> Optional[Dict]:
         """Get address from coordinates."""
         key = f"{latitude},{longitude}"
@@ -94,27 +95,41 @@ class GeocodingService:
     
     def geocode_address(self, address: str) -> Optional[Dict]:
         """Geocode a single address with caching."""
+        # Clean the address
+        clean_address = address.strip()
+        if not clean_address:
+            return None
+            
         # Check cache first
-        if address in self._cache:
-            return self._cache[address]
+        if clean_address in self._cache:
+            current_app.logger.info(f"Cache hit for address: {clean_address}")
+            return self._cache[clean_address]
         
         try:
-            location = self.geocode(address)
-            if location:
-                result = {
-                    'address': address,
-                    'lat': location['latitude'],
-                    'lng': location['longitude'],
-                    'provider': 'nominatim'
-                }
-                self._cache[address] = result
-                self._save_cache()
-                return result
-            # Add support for other providers here (Google, Mapbox)
+            # Geocode the address
+            result = self.geocode(clean_address)
             
+            if result:
+                # Format the result
+                cached_result = {
+                    'address': clean_address,
+                    'lat': result['lat'],
+                    'lng': result['lng'],
+                    'formatted_address': result['formatted_address']
+                }
+                
+                # Cache the result
+                self._cache[clean_address] = cached_result
+                self._save_cache()
+                
+                current_app.logger.info(f"Successfully geocoded address: {clean_address}")
+                return cached_result
+            
+            current_app.logger.warning(f"Could not geocode address: {clean_address}")
             return None
-        except (GeocoderTimedOut, GeocoderUnavailable) as e:
-            print(f"Geocoding error for {address}: {str(e)}")
+            
+        except Exception as e:
+            current_app.logger.error(f"Error geocoding address {clean_address}: {str(e)}")
             return None
     
     def geocode_batch(self, addresses: List[str], batch_size: int = 50) -> Dict:

@@ -3,6 +3,7 @@
 {% block title %}Analysis - Housing & Income Analysis Tool{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
 <style>
     .map-container {
         height: 400px;
@@ -43,12 +44,26 @@
                 <form id="analysis-form">
                     <div class="mb-3">
                         <label class="form-label">Reference Point</label>
-                        <div class="input-group">
-                            <input type="text" class="form-control" id="reference-address" 
-                                   placeholder="Enter reference address" required>
-                            <button type="button" class="btn btn-outline-primary" id="geocode-btn">
-                                <i class="fas fa-map-marker-alt"></i>
-                            </button>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <div class="input-group">
+                                    <span class="input-group-text">Lat</span>
+                                    <input type="number" class="form-control" id="reference-lat" 
+                                           placeholder="Latitude" step="any" required
+                                           value="30.372311">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="input-group">
+                                    <span class="input-group-text">Lng</span>
+                                    <input type="number" class="form-control" id="reference-lng" 
+                                           placeholder="Longitude" step="any" required
+                                           value="-86.237212">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-text">
+                            Reference Point: St. Rita Catholic Church
                         </div>
                     </div>
 
@@ -171,14 +186,24 @@ document.addEventListener('DOMContentLoaded', function() {
     const resultsContainer = document.getElementById('results-container');
     const directionCards = document.querySelectorAll('.direction-card');
     const selectedDirections = document.getElementById('selected-directions');
-    const map = L.map('map');
+    const referenceLat = document.getElementById('reference-lat');
+    const referenceLng = document.getElementById('reference-lng');
+    
+    // Initialize map with St. Rita's coordinates
+    const map = L.map('map').setView([30.372311, -86.237212], 12);
+    let mapMarker = null;
     let directionChart = null;
     let contributionChart = null;
 
-    // Initialize map
+    // Initialize tile layer
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'
     }).addTo(map);
+
+    // Add initial marker for St. Rita's
+    mapMarker = L.marker([30.372311, -86.237212])
+        .bindPopup('St. Rita Catholic Church')
+        .addTo(map);
 
     // Direction card selection
     directionCards.forEach(card => {
@@ -194,44 +219,44 @@ document.addEventListener('DOMContentLoaded', function() {
         selectedDirections.value = selected.length ? selected.join(',') : 'north,south,east,west';
     }
 
-    // Geocoding
-    document.getElementById('geocode-btn').addEventListener('click', async () => {
-        const address = document.getElementById('reference-address').value;
-        if (!address) return;
-
-        try {
-            const response = await fetch('/api/geocode', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ addresses: [address] })
-            });
-
-            const result = await response.json();
-            if (result.successful.length) {
-                const location = result.successful[0];
-                map.setView([location.lat, location.lng], 12);
-                L.marker([location.lat, location.lng])
+    // Update marker when coordinates change
+    function updateMarker() {
+        const lat = parseFloat(referenceLat.value);
+        const lng = parseFloat(referenceLng.value);
+        
+        if (!isNaN(lat) && !isNaN(lng)) {
+            const newLatLng = [lat, lng];
+            map.setView(newLatLng, 12);
+            
+            if (mapMarker) {
+                mapMarker.setLatLng(newLatLng);
+            } else {
+                mapMarker = L.marker(newLatLng)
                     .bindPopup('Reference Point')
                     .addTo(map);
-            } else {
-                alert('Could not geocode address');
             }
-        } catch (error) {
-            alert('Error geocoding address');
         }
-    });
+    }
+
+    referenceLat.addEventListener('change', updateMarker);
+    referenceLng.addEventListener('change', updateMarker);
 
     // Form submission
     analysisForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
+        const lat = parseFloat(referenceLat.value);
+        const lng = parseFloat(referenceLng.value);
+        
+        if (isNaN(lat) || isNaN(lng)) {
+            alert('Please enter valid latitude and longitude values');
+            return;
+        }
+        
         const formData = {
             reference_point: {
-                address: document.getElementById('reference-address').value,
-                lat: map.getCenter().lat,
-                lng: map.getCenter().lng
+                lat: lat,
+                lng: lng
             },
             directions: selectedDirections.value.split(','),
             threshold: parseFloat(document.getElementById('threshold').value)
@@ -249,14 +274,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify(formData)
             });
 
-            const result = await response.json();
-            if (response.ok) {
-                displayResults(result);
-            } else {
-                throw new Error(result.error || 'Analysis failed');
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Analysis failed');
             }
+
+            const result = await response.json();
+            displayResults(result);
         } catch (error) {
-            alert(error.message);
+            console.error('Analysis error:', error);
+            alert(error.message || 'Error running analysis. Please try again.');
         } finally {
             loading.style.display = 'none';
             resultsContainer.style.display = 'block';

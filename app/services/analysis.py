@@ -35,46 +35,59 @@ class AnalysisService:
             return {'error': 'No data loaded'}
         
         try:
-            # Calculate direction and distance for each point
-            results = {
-                'north': [],
-                'south': [],
-                'east': [],
-                'west': []
+            # Initialize results
+            points = []
+            direction_counts = {
+                'north': 0,
+                'south': 0,
+                'east': 0,
+                'west': 0
             }
             
+            # Process each record
             for _, row in self._df.iterrows():
-                lat_diff = row['latitude'] - reference_point['latitude']
-                lon_diff = row['longitude'] - reference_point['longitude']
-                
-                # Determine direction
-                if abs(lat_diff) > abs(lon_diff):
-                    direction = 'north' if lat_diff > 0 else 'south'
-                else:
-                    direction = 'east' if lon_diff > 0 else 'west'
+                # Get direction based on reference point
+                direction = self.determine_direction(
+                    reference_point['lat'],
+                    reference_point['lng'],
+                    float(row['latitude']),
+                    float(row['longitude'])
+                )
                 
                 if direction in directions:
-                    results[direction].append({
-                        'address': row['address'],
-                        'latitude': row['latitude'],
-                        'longitude': row['longitude'],
-                        'contribution': row.get('contribution', 0)
+                    # Add point to results
+                    points.append({
+                        'lat': float(row['latitude']),
+                        'lng': float(row['longitude']),
+                        'direction': direction,
+                        'contribution': float(row['contribution_amount']),
+                        'display_name': row['display_name']
                     })
+                    direction_counts[direction] += 1
             
-            # Calculate statistics for each direction
-            stats = {}
-            for direction in directions:
-                contributions = [p['contribution'] for p in results[direction]]
-                stats[direction] = {
-                    'count': len(contributions),
-                    'total': sum(contributions),
-                    'average': np.mean(contributions) if contributions else 0,
-                    'median': np.median(contributions) if contributions else 0
-                }
+            # Calculate contribution statistics
+            contributions = [p['contribution'] for p in points]
+            contribution_stats = {
+                'mean': float(np.mean(contributions)) if contributions else 0,
+                'median': float(np.median(contributions)) if contributions else 0,
+                'min': float(min(contributions)) if contributions else 0,
+                'max': float(max(contributions)) if contributions else 0,
+                'sum': float(sum(contributions)) if contributions else 0
+            }
+            
+            # Prepare statistics
+            stats = {
+                'total_records': len(self._df),
+                'records_analyzed': len(points),
+                'income_filtered': len([p for p in points if p['contribution'] >= reference_point.get('threshold', 0)]),
+                'direction_filtered': direction_counts,
+                'contribution_stats': contribution_stats
+            }
             
             return {
-                'points': results,
-                'statistics': stats
+                'reference_point': reference_point,
+                'points': points,
+                'stats': stats
             }
             
         except Exception as e:

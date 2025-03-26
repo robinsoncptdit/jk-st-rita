@@ -91,40 +91,81 @@ def upload_file():
 @bp.route('/geocode', methods=['POST'])
 def geocode_address():
     """Geocode an address."""
-    data = request.get_json()
-    if not data or 'address' not in data:
-        return jsonify({'error': 'Address is required'}), 400
-    
-    geocoding_service = get_geocoding_service()
-    result = geocoding_service.geocode(data['address'])
-    
-    if result is None:
-        return jsonify({'error': 'Could not geocode address'}), 400
-    
-    return jsonify(result), 200
+    try:
+        data = request.get_json()
+        if not data:
+            current_app.logger.error("No JSON data in request")
+            return jsonify({'error': 'No data provided'}), 400
+            
+        if 'address' not in data:
+            current_app.logger.error("No address in request data")
+            return jsonify({'error': 'Address is required'}), 400
+            
+        address = data['address'].strip()
+        if not address:
+            current_app.logger.error("Empty address provided")
+            return jsonify({'error': 'Address cannot be empty'}), 400
+        
+        current_app.logger.info(f"Geocoding address: {address}")
+        geocoding_service = get_geocoding_service()
+        result = geocoding_service.geocode_address(address)
+        
+        if result is None:
+            current_app.logger.error(f"Could not geocode address: {address}")
+            return jsonify({'error': 'Could not geocode address. Please check the address and try again.'}), 400
+        
+        current_app.logger.info(f"Successfully geocoded address: {address}")
+        return jsonify(result), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in geocode_address: {str(e)}")
+        return jsonify({'error': 'Geocoding service error. Please try again.'}), 500
 
 @bp.route('/analyze', methods=['POST'])
 def analyze_data():
     """Analyze data based on directions and threshold."""
-    data = request.get_json()
-    if not data:
-        return jsonify({'error': 'No data provided'}), 400
-    
-    reference_point = data.get('reference_point')
-    directions = data.get('directions', [])
-    threshold = data.get('threshold')
-    
-    if not reference_point:
-        return jsonify({'error': 'Reference point is required'}), 400
-    
-    analysis_service = get_analysis_service()
-    result = analysis_service.analyze_directions(reference_point, directions)
-    
-    if threshold is not None:
-        filtered_data = analysis_service.filter_by_threshold(threshold)
-        result['filtered_data'] = filtered_data
-    
-    return jsonify(result), 200
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        reference_point = data.get('reference_point')
+        directions = data.get('directions', [])
+        threshold = data.get('threshold')
+        
+        if not reference_point:
+            return jsonify({'error': 'Reference point is required'}), 400
+        
+        if not directions:
+            return jsonify({'error': 'At least one direction must be selected'}), 400
+        
+        # Add threshold to reference point for filtering
+        reference_point['threshold'] = threshold
+        
+        analysis_service = get_analysis_service()
+        
+        # Load the most recent processed data
+        processed_files = [f for f in os.listdir(current_app.config['UPLOAD_FOLDER']) 
+                         if f.startswith('processed_') and f.endswith('.csv')]
+        if not processed_files:
+            return jsonify({'error': 'No processed data available'}), 400
+        
+        # Get the most recent file
+        latest_file = sorted(processed_files)[-1]
+        if not analysis_service.load_data(latest_file):
+            return jsonify({'error': 'Could not load processed data'}), 500
+        
+        # Perform analysis
+        result = analysis_service.analyze_directions(reference_point, directions)
+        
+        if result.get('error'):
+            return jsonify({'error': result['error']}), 400
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in analyze_data: {str(e)}")
+        return jsonify({'error': 'Analysis failed. Please try again.'}), 500
 
 @bp.route('/visualization/map', methods=['POST'])
 def get_map():
