@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import json
 import os
@@ -8,40 +8,234 @@ from flask import current_app
 
 class AnalysisService:
     def __init__(self):
-        self.upload_folder = current_app.config['UPLOAD_FOLDER']
+        self._upload_folder = None
+        self._df = None
         self.analysis_results = {}
+    
+    @property
+    def upload_folder(self):
+        if self._upload_folder is None:
+            with current_app.app_context():
+                self._upload_folder = current_app.config['UPLOAD_FOLDER']
+        return self._upload_folder
+    
+    def load_data(self, filename: str) -> bool:
+        """Load data from CSV file."""
+        try:
+            file_path = os.path.join(self.upload_folder, filename)
+            self._df = pd.read_csv(file_path)
+            return True
+        except Exception as e:
+            current_app.logger.error(f"Error loading data: {str(e)}")
+            return False
+    
+    def analyze_directions(self, reference_point: Dict[str, float], directions: List[str]) -> Dict:
+        """Analyze data based on cardinal directions from reference point."""
+        if self._df is None:
+            return {'error': 'No data loaded'}
+        
+        try:
+            # Calculate direction and distance for each point
+            results = {
+                'north': [],
+                'south': [],
+                'east': [],
+                'west': []
+            }
+            
+            for _, row in self._df.iterrows():
+                lat_diff = row['latitude'] - reference_point['latitude']
+                lon_diff = row['longitude'] - reference_point['longitude']
+                
+                # Determine direction
+                if abs(lat_diff) > abs(lon_diff):
+                    direction = 'north' if lat_diff > 0 else 'south'
+                else:
+                    direction = 'east' if lon_diff > 0 else 'west'
+                
+                if direction in directions:
+                    results[direction].append({
+                        'address': row['address'],
+                        'latitude': row['latitude'],
+                        'longitude': row['longitude'],
+                        'contribution': row.get('contribution', 0)
+                    })
+            
+            # Calculate statistics for each direction
+            stats = {}
+            for direction in directions:
+                contributions = [p['contribution'] for p in results[direction]]
+                stats[direction] = {
+                    'count': len(contributions),
+                    'total': sum(contributions),
+                    'average': np.mean(contributions) if contributions else 0,
+                    'median': np.median(contributions) if contributions else 0
+                }
+            
+            return {
+                'points': results,
+                'statistics': stats
+            }
+            
+        except Exception as e:
+            current_app.logger.error(f"Error analyzing directions: {str(e)}")
+            return {'error': str(e)}
+    
+    def filter_by_threshold(self, threshold: float) -> List[Dict]:
+        """Filter data by contribution threshold."""
+        if self._df is None:
+            return []
+        
+        try:
+            filtered_df = self._df[self._df['contribution'] >= threshold]
+            return filtered_df.to_dict('records')
+        except Exception as e:
+            current_app.logger.error(f"Error filtering by threshold: {str(e)}")
+            return []
+    
+    def get_summary_statistics(self) -> Dict:
+        """Get summary statistics for the loaded data."""
+        if self._df is None:
+            return {}
+        
+        try:
+            stats = {
+                'total_records': len(self._df),
+                'total_contribution': self._df['contribution'].sum(),
+                'average_contribution': self._df['contribution'].mean(),
+                'median_contribution': self._df['contribution'].median(),
+                'min_contribution': self._df['contribution'].min(),
+                'max_contribution': self._df['contribution'].max()
+            }
+            return stats
+        except Exception as e:
+            current_app.logger.error(f"Error calculating summary statistics: {str(e)}")
+            return {}
     
     def process_csv(self, filepath: str) -> Dict:
         """Process uploaded CSV file and prepare for analysis."""
         try:
-            # Read CSV file
-            df = pd.read_csv(filepath)
+            # Read CSV file with string type for all columns initially
+            df = pd.read_csv(filepath, dtype=str, na_values=[''], keep_default_na=True)
             
             # Validate required columns
-            required_columns = ['address', 'contribution_amount']
+            required_columns = [
+                'dp_RecordID', 'HOH_Titles', 'Family_Name', 'Address_Line_1', 'City', 
+                'State/Region', 'Postal_Code', 'Taxable_Donations_Last_52',
+                'CSA_Last_Year', 'Offertory_Rolling_52'
+            ]
             missing_columns = [col for col in required_columns if col not in df.columns]
             if missing_columns:
                 raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
             
             # Clean and prepare data
-            df['address'] = df['address'].str.strip()
-            df['contribution_amount'] = pd.to_numeric(df['contribution_amount'], errors='coerce')
+            # Fill NaN values with appropriate defaults
+            df['Address_Line_2'] = df['Address_Line_2'].fillna('')
+            
+            # Function to clean currency strings and convert to float
+            def clean_currency(x):
+                if pd.isna(x) or x == '':
+                    return 0.0
+                try:
+                    # Remove currency symbols, spaces, and commas, then convert to float
+                    return float(str(x).replace('$', '').replace(',', '').strip())
+                except:
+                    return 0.0
+            
+            # Clean and convert contribution columns
+            contribution_columns = ['Taxable_Donations_Last_52', 'CSA_Last_Year', 'Offertory_Rolling_52']
+            for col in contribution_columns:
+                df[col] = df[col].apply(clean_currency)
+            
+            # Ensure address components are strings and clean them
+            address_columns = ['Address_Line_1', 'Address_Line_2', 'City', 'State/Region', 'Postal_Code']
+            for col in address_columns:
+                df[col] = df[col].astype(str).replace('nan', '').str.strip()
+            
+            # Combine address components into a single address field
+            df['address'] = df.apply(
+                lambda row: ', '.join(filter(None, [
+                    str(row['Address_Line_1']).strip(),
+                    str(row['Address_Line_2']).strip() if row['Address_Line_2'] else '',
+                    str(row['City']).strip(),
+                    str(row['State/Region']).strip(),
+                    str(row['Postal_Code']).split('-')[0].strip()  # Use base ZIP without +4
+                ])),
+                axis=1
+            )
+            
+            # Calculate total contribution
+            df['contribution_amount'] = df[contribution_columns].sum(axis=1)
+            
+            # Create display name using HOH_Titles + Family_Name
+            df['HOH_Titles'] = df['HOH_Titles'].fillna('').astype(str)
+            df['Family_Name'] = df['Family_Name'].fillna('').astype(str)
+            df['display_name'] = df.apply(
+                lambda row: f"{row['HOH_Titles']} {row['Family_Name']}".strip(),
+                axis=1
+            )
+            
+            # Function to convert numpy types to Python native types
+            def convert_to_native(value):
+                if isinstance(value, (np.int64, np.int32, np.int16, np.int8)):
+                    return int(value)
+                elif isinstance(value, (np.float64, np.float32)):
+                    return float(value)
+                return value
+            
+            # Add family information
+            df['family_info'] = df.apply(
+                lambda row: {
+                    'record_id': str(row['dp_RecordID']),
+                    'display_name': row['display_name'],
+                    'family_name': str(row['Family_Name']),
+                    'head_1_name': str(row['Head_1_Name']) if pd.notna(row['Head_1_Name']) else '',
+                    'head_2_name': str(row['Head_2_Name']) if pd.notna(row['Head_2_Name']) else '',
+                    'salutation': str(row['Salutation']) if pd.notna(row['Salutation']) else '',
+                    'formal_addressee': str(row['Formal_Addressee']) if pd.notna(row['Formal_Addressee']) else '',
+                    'contributions': {
+                        'taxable_donations': convert_to_native(row['Taxable_Donations_Last_52']),
+                        'csa': convert_to_native(row['CSA_Last_Year']),
+                        'offertory': convert_to_native(row['Offertory_Rolling_52'])
+                    }
+                },
+                axis=1
+            )
             
             # Generate analysis ID
             analysis_id = datetime.now().strftime('%Y%m%d_%H%M%S')
             
             # Save processed data
             processed_file = os.path.join(self.upload_folder, f'processed_{analysis_id}.csv')
-            df.to_csv(processed_file, index=False)
             
+            # Convert contribution_amount to native Python float
+            df['contribution_amount'] = df['contribution_amount'].apply(convert_to_native)
+            
+            # Select and save relevant columns
+            processed_df = pd.DataFrame({
+                'address': df['address'],
+                'contribution_amount': df['contribution_amount'],
+                'display_name': df['display_name'],
+                'family_info': df['family_info'].apply(json.dumps)
+            })
+            processed_df.to_csv(processed_file, index=False)
+            
+            # Convert numeric values to native Python types for the return dictionary
             return {
                 'analysis_id': analysis_id,
-                'total_records': len(df),
-                'valid_addresses': df['address'].notna().sum(),
-                'valid_contributions': df['contribution_amount'].notna().sum()
+                'total_records': int(len(df)),
+                'valid_addresses': int(df['address'].notna().sum()),
+                'valid_contributions': int(df['contribution_amount'].notna().sum()),
+                'total_contribution': float(df['contribution_amount'].sum()),
+                'contribution_summary': {
+                    'taxable_donations': float(df['Taxable_Donations_Last_52'].sum()),
+                    'csa': float(df['CSA_Last_Year'].sum()),
+                    'offertory': float(df['Offertory_Rolling_52'].sum())
+                }
             }
             
         except Exception as e:
+            current_app.logger.error(f"Error in process_csv: {str(e)}")
             raise Exception(f"Error processing CSV: {str(e)}")
     
     def determine_direction(self, ref_lat: float, ref_lng: float, 

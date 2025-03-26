@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Data - Housing & Income Analysis Tool{% endblock %}
+
+{% block extra_css %}
+<style>
+    .upload-area {
+        border: 2px dashed #ccc;
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        background: #f8f9fa;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .upload-area:hover {
+        border-color: #0d6efd;
+        background: #f1f3f5;
+    }
+    .upload-area.dragover {
+        border-color: #0d6efd;
+        background: #e9ecef;
+    }
+    #progress-bar {
+        display: none;
+    }
+    .file-info {
+        display: none;
+        margin-top: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title mb-0">Upload Data</h3>
+            </div>
+            <div class="card-body">
+                <form id="upload-form" method="POST" enctype="multipart/form-data">
+                    <div class="upload-area" id="drop-zone">
+                        <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
+                        <h4>Drag & Drop your CSV file here</h4>
+                        <p class="text-muted">or</p>
+                        <input type="file" id="file-input" name="file" accept=".csv" class="d-none">
+                        <button type="button" class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+                            Browse Files
+                        </button>
+                        <p class="mt-3 text-muted">Supported format: CSV</p>
+                    </div>
+
+                    <div id="file-info" class="file-info">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <span id="file-name"></span>
+                            <span id="file-size"></span>
+                        </div>
+                    </div>
+
+                    <div id="progress-bar" class="progress mb-3">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%"></div>
+                    </div>
+
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-success" id="upload-button" disabled>
+                            <i class="fas fa-upload"></i> Upload
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h3 class="card-title mb-0">CSV File Requirements</h3>
+            </div>
+            <div class="card-body">
+                <h5 class="mb-3">Required Columns:</h5>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item">
+                        <i class="fas fa-check text-success"></i> <strong>Identification:</strong>
+                        <ul class="list-unstyled ms-4 mt-2">
+                            <li><i class="fas fa-angle-right"></i> dp_RecordID - Unique identifier</li>
+                            <li><i class="fas fa-angle-right"></i> HOH_Titles - Title(s) for head of household</li>
+                            <li><i class="fas fa-angle-right"></i> Family_Name - Family surname</li>
+                        </ul>
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-check text-success"></i> <strong>Address Components:</strong>
+                        <ul class="list-unstyled ms-4 mt-2">
+                            <li><i class="fas fa-angle-right"></i> Address_Line_1 - Primary address</li>
+                            <li><i class="fas fa-angle-right"></i> City - City name</li>
+                            <li><i class="fas fa-angle-right"></i> State/Region - State abbreviation</li>
+                            <li><i class="fas fa-angle-right"></i> Postal_Code - ZIP code (with or without +4)</li>
+                        </ul>
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-check text-success"></i> <strong>Contribution Fields (in dollars):</strong>
+                        <ul class="list-unstyled ms-4 mt-2">
+                            <li><i class="fas fa-angle-right"></i> Taxable_Donations_Last_52 - Taxable donations</li>
+                            <li><i class="fas fa-angle-right"></i> CSA_Last_Year - CSA contributions</li>
+                            <li><i class="fas fa-angle-right"></i> Offertory_Rolling_52 - Offertory contributions</li>
+                        </ul>
+                    </li>
+                </ul>
+                
+                <h5 class="mt-4 mb-3">Additional Information:</h5>
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item">
+                        <i class="fas fa-info-circle text-info"></i> Empty contribution fields will be treated as $0
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-info-circle text-info"></i> All address components will be combined for geocoding
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-info-circle text-info"></i> Maximum file size: 16MB
+                    </li>
+                    <li class="list-group-item">
+                        <i class="fas fa-info-circle text-info"></i> Optional fields that enhance reporting:
+                        <ul class="list-unstyled ms-4 mt-2">
+                            <li><i class="fas fa-angle-right"></i> Head_1_Name - First head of household</li>
+                            <li><i class="fas fa-angle-right"></i> Head_2_Name - Second head of household</li>
+                            <li><i class="fas fa-angle-right"></i> Salutation - Preferred salutation</li>
+                            <li><i class="fas fa-angle-right"></i> Formal_Addressee - Formal addressing</li>
+                            <li><i class="fas fa-angle-right"></i> Address_Line_2 - Secondary address line</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const fileInfo = document.getElementById('file-info');
+    const fileName = document.getElementById('file-name');
+    const fileSize = document.getElementById('file-size');
+    const progressBar = document.getElementById('progress-bar');
+    const uploadButton = document.getElementById('upload-button');
+    const uploadForm = document.getElementById('upload-form');
+
+    // Drag and drop handlers
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length) {
+            handleFile(files[0]);
+        }
+    });
+
+    // File input handler
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            handleFile(e.target.files[0]);
+        }
+    });
+
+    // Handle selected file
+    function handleFile(file) {
+        if (!file.name.endsWith('.csv')) {
+            alert('Please select a CSV file');
+            return;
+        }
+
+        if (file.size > 16 * 1024 * 1024) { // 16MB
+            alert('File size exceeds 16MB limit');
+            return;
+        }
+
+        fileName.textContent = `File: ${file.name}`;
+        fileSize.textContent = `Size: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+        fileInfo.style.display = 'block';
+        uploadButton.disabled = false;
+    }
+
+    // Form submission
+    uploadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        uploadButton.disabled = true;
+        progressBar.style.display = 'block';
+        const progressBarInner = progressBar.querySelector('.progress-bar');
+
+        try {
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                // Show success message
+                const alert = document.createElement('div');
+                alert.className = 'alert alert-success alert-dismissible fade show';
+                alert.innerHTML = `
+                    <i class="fas fa-check-circle"></i> File uploaded successfully!
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                uploadForm.insertBefore(alert, uploadForm.firstChild);
+
+                // Redirect to analysis page after 2 seconds
+                setTimeout(() => {
+                    window.location.href = '/analysis';
+                }, 2000);
+            } else {
+                throw new Error(result.error || 'Upload failed');
+            }
+        } catch (error) {
+            // Show error message
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-danger alert-dismissible fade show';
+            alert.innerHTML = `
+                <i class="fas fa-exclamation-circle"></i> ${error.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            uploadForm.insertBefore(alert, uploadForm.firstChild);
+        } finally {
+            uploadButton.disabled = false;
+            progressBar.style.display = 'none';
+        }
+    });
+});
+</script>
+{% endblock %} 

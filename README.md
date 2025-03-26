@@ -1,31 +1,111 @@
-# Flask Application
+# Housing & Income Analysis Tool
 
-This is a basic Flask application setup.
+A Flask-based web application for analyzing housing and income data with geographic visualization and reporting capabilities.
 
-## Setup
+## Features
 
-1. Make sure you have Python 3.x installed
-2. Create and activate the virtual environment:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On macOS/Linux
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- CSV data upload and validation
+- Automatic address geocoding
+- Directional analysis (North, South, East, West)
+- Contribution threshold filtering
+- Interactive map visualization
+- PDF report generation
+- Comprehensive test coverage
 
-## Running the Application
+## Prerequisites
 
-1. Make sure the virtual environment is activated
-2. Run the application:
-   ```bash
-   python app.py
-   ```
-3. Open your browser and navigate to `http://localhost:5000`
+- Python 3.8 or higher
+- pip (Python package installer)
+- Git
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/housing-income-analysis.git
+cd housing-income-analysis
+```
+
+2. Set up the development environment:
+```bash
+python setup_dev.py
+```
+
+3. Update the `.env` file with your configuration:
+- Set your geocoding API key
+- Adjust other settings as needed
+
+## Development
+
+1. Start the development server:
+```bash
+python run_dev.py
+```
+
+2. Run tests:
+```bash
+python run_tests.py
+```
+
+3. Manage the database:
+```bash
+# Initialize the database
+python manage_db.py init
+
+# Run migrations
+python manage_db.py migrate
+
+# Rollback last migration
+python manage_db.py rollback
+
+# Reset database
+python manage_db.py reset
+
+# Show migration status
+python manage_db.py status
+```
 
 ## Project Structure
 
-- `app.py`: Main application file
-- `requirements.txt`: Project dependencies
-- `venv/`: Virtual environment directory 
+```
+housing-income-analysis/
+├── app/
+│   ├── __init__.py
+│   ├── api/
+│   ├── main/
+│   ├── services/
+│   ├── static/
+│   └── templates/
+├── tests/
+├── uploads/
+├── reports/
+├── config.py
+├── requirements.txt
+├── setup_dev.py
+├── run_dev.py
+├── run_tests.py
+└── manage_db.py
+```
+
+## Testing
+
+The project uses pytest for testing. Test files are located in the `tests/` directory.
+
+To run tests with coverage reporting:
+```bash
+python run_tests.py
+```
+
+Coverage reports will be generated in the `coverage_html/` directory.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details. 

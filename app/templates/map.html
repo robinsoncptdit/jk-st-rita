@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+
+{% block title %}Map View - Housing & Income Analysis Tool{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.7.1/dist/leaflet.css">
+<style>
+    .map-container {
+        height: calc(100vh - 200px);
+        margin-bottom: 20px;
+    }
+    .filter-panel {
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+    }
+    .direction-filter {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+    }
+    .direction-btn {
+        flex: 1;
+        padding: 8px;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        background: white;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .direction-btn.active {
+        background: #0d6efd;
+        color: white;
+        border-color: #0d6efd;
+    }
+    .direction-btn:hover {
+        background: #e9ecef;
+    }
+    .direction-btn.active:hover {
+        background: #0b5ed7;
+    }
+    .legend {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        background: white;
+        padding: 10px;
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        z-index: 1000;
+    }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin: 5px 0;
+    }
+    .legend-color {
+        width: 20px;
+        height: 20px;
+        margin-right: 8px;
+        border-radius: 50%;
+    }
+    .loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(255,255,255,0.9);
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        z-index: 1000;
+        display: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-3">
+        <div class="filter-panel">
+            <h4>Filters</h4>
+            
+            <div class="mb-3">
+                <label class="form-label">Contribution Threshold</label>
+                <div class="input-group">
+                    <span class="input-group-text">$</span>
+                    <input type="number" class="form-control" id="threshold" 
+                           value="500" min="0" step="100">
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Directions</label>
+                <div class="direction-filter">
+                    <button class="direction-btn active" data-direction="north">
+                        <i class="fas fa-arrow-up"></i> North
+                    </button>
+                    <button class="direction-btn active" data-direction="south">
+                        <i class="fas fa-arrow-down"></i> South
+                    </button>
+                    <button class="direction-btn active" data-direction="east">
+                        <i class="fas fa-arrow-right"></i> East
+                    </button>
+                    <button class="direction-btn active" data-direction="west">
+                        <i class="fas fa-arrow-left"></i> West
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Contribution Range</label>
+                <div class="input-group">
+                    <span class="input-group-text">$</span>
+                    <input type="number" class="form-control" id="min-contribution" 
+                           placeholder="Min" min="0">
+                    <span class="input-group-text">to</span>
+                    <input type="number" class="form-control" id="max-contribution" 
+                           placeholder="Max" min="0">
+                </div>
+            </div>
+
+            <button class="btn btn-primary w-100" id="apply-filters">
+                <i class="fas fa-filter"></i> Apply Filters
+            </button>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div id="map-stats">
+                    <p class="text-muted">Select an area on the map to view statistics</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-body p-0">
+                <div id="map" class="map-container"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="legend">
+    <h6>Legend</h6>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #0d6efd;"></div>
+        <span>North</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #198754;"></div>
+        <span>South</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #ffc107;"></div>
+        <span>East</span>
+    </div>
+    <div class="legend-item">
+        <div class="legend-color" style="background: #dc3545;"></div>
+        <span>West</span>
+    </div>
+</div>
+
+<div class="loading">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="mt-2">Updating map...</p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.7.1/dist/leaflet.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const map = L.map('map');
+    const loading = document.querySelector('.loading');
+    const directionButtons = document.querySelectorAll('.direction-btn');
+    const applyFiltersBtn = document.getElementById('apply-filters');
+    let currentMarkers = [];
+    let currentPolygon = null;
+
+    // Initialize map
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Set initial view
+    map.setView([40.7128, -74.0060], 12); // Default to NYC
+
+    // Direction button handlers
+    directionButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            btn.classList.toggle('active');
+            updateMap();
+        });
+    });
+
+    // Apply filters button handler
+    applyFiltersBtn.addEventListener('click', updateMap);
+
+    // Draw area selection
+    const drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
+
+    const drawControl = new L.Control.Draw({
+        draw: {
+            polygon: true,
+            rectangle: true,
+            circle: true,
+            circlemarker: false,
+            marker: false,
+            polyline: false
+        },
+        edit: {
+            featureGroup: drawnItems,
+            remove: true
+        }
+    });
+    map.addControl(drawControl);
+
+    // Handle area selection
+    map.on('draw:created', function(e) {
+        if (currentPolygon) {
+            drawnItems.removeLayer(currentPolygon);
+        }
+        currentPolygon = e.layer;
+        drawnItems.addLayer(currentPolygon);
+        updateMap();
+    });
+
+    map.on('draw:deleted', function(e) {
+        currentPolygon = null;
+        updateMap();
+    });
+
+    // Update map with current filters
+    async function updateMap() {
+        loading.style.display = 'block';
+
+        // Clear existing markers
+        currentMarkers.forEach(marker => map.removeLayer(marker));
+        currentMarkers = [];
+
+        try {
+            const response = await fetch('/api/visualization/map', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                params: {
+                    threshold: document.getElementById('threshold').value,
+                    directions: Array.from(document.querySelectorAll('.direction-btn.active'))
+                        .map(btn => btn.dataset.direction),
+                    min_contribution: document.getElementById('min-contribution').value,
+                    max_contribution: document.getElementById('max-contribution').value,
+                    bounds: currentPolygon ? getPolygonBounds(currentPolygon) : null
+                }
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                displayMapData(data);
+                updateStatistics(data);
+            } else {
+                throw new Error(data.error || 'Failed to load map data');
+            }
+        } catch (error) {
+            alert(error.message);
+        } finally {
+            loading.style.display = 'none';
+        }
+    }
+
+    // Display map data
+    function displayMapData(data) {
+        // Add reference point
+        if (data.reference_point) {
+            const refMarker = L.marker([data.reference_point.lat, data.reference_point.lng])
+                .bindPopup('Reference Point')
+                .addTo(map);
+            currentMarkers.push(refMarker);
+        }
+
+        // Add data points
+        data.points.forEach(point => {
+            const marker = L.circleMarker([point.lat, point.lng], {
+                radius: 8,
+                color: getDirectionColor(point.direction),
+                fill: true
+            })
+            .bindPopup(`
+                <strong>Address:</strong> ${point.address}<br>
+                <strong>Contribution:</strong> $${point.contribution.toFixed(2)}<br>
+                <strong>Direction:</strong> ${point.direction}
+            `)
+            .addTo(map);
+            currentMarkers.push(marker);
+        });
+    }
+
+    // Update statistics
+    function updateStatistics(data) {
+        const stats = data.stats;
+        document.getElementById('map-stats').innerHTML = `
+            <ul class="list-group list-group-flush">
+                <li class="list-group-item d-flex justify-content-between">
+                    Total Points
+                    <span class="badge bg-primary rounded-pill">${stats.total_records}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    Average Contribution
+                    <span class="badge bg-primary rounded-pill">$${stats.contribution_stats.mean.toFixed(2)}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                    Total Contributions
+                    <span class="badge bg-primary rounded-pill">$${stats.contribution_stats.sum.toFixed(2)}</span>
+                </li>
+                <li class="list-group-item">
+                    <strong>Direction Distribution:</strong>
+                    <ul class="list-unstyled mt-2">
+                        ${Object.entries(stats.direction_filtered).map(([direction, count]) => `
+                            <li class="d-flex justify-content-between">
+                                ${direction.charAt(0).toUpperCase() + direction.slice(1)}
+                                <span class="badge bg-${getDirectionBadgeColor(direction)} rounded-pill">${count}</span>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </li>
+            </ul>
+        `;
+    }
+
+    // Helper functions
+    function getDirectionColor(direction) {
+        const colors = {
+            north: '#0d6efd',
+            south: '#198754',
+            east: '#ffc107',
+            west: '#dc3545'
+        };
+        return colors[direction] || '#6c757d';
+    }
+
+    function getDirectionBadgeColor(direction) {
+        const colors = {
+            north: 'primary',
+            south: 'success',
+            east: 'warning',
+            west: 'danger'
+        };
+        return colors[direction] || 'secondary';
+    }
+
+    function getPolygonBounds(polygon) {
+        const bounds = polygon.getBounds();
+        return {
+            north: bounds.getNorth(),
+            south: bounds.getSouth(),
+            east: bounds.getEast(),
+            west: bounds.getWest()
+        };
+    }
+
+    // Initial map load
+    updateMap();
+});
+</script>
+{% endblock %} 

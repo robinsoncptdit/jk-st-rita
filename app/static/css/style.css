@@ -1,0 +1,121 @@
+/* Global Styles */
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.footer {
+    margin-top: auto;
+}
+
+/* Card Styles */
+.card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 1.5rem;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0,0,0,0.125);
+}
+
+/* Button Styles */
+.btn {
+    font-weight: 500;
+}
+
+.btn-icon {
+    margin-right: 0.5rem;
+}
+
+/* Alert Styles */
+.alert {
+    margin-bottom: 1rem;
+}
+
+.alert i {
+    margin-right: 0.5rem;
+}
+
+/* Navigation */
+.navbar {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.navbar-brand i,
+.nav-link i {
+    margin-right: 0.5rem;
+}
+
+/* Form Styles */
+.form-label {
+    font-weight: 500;
+}
+
+.form-control:focus {
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+/* List Group */
+.list-group-item i {
+    margin-right: 0.5rem;
+}
+
+/* Progress Bar */
+.progress {
+    height: 1.5rem;
+    margin: 1rem 0;
+}
+
+/* Map Container */
+.map-container {
+    height: 500px;
+    border-radius: 0.25rem;
+    overflow: hidden;
+}
+
+/* Chart Container */
+.chart-container {
+    height: 400px;
+    margin-bottom: 1.5rem;
+}
+
+/* Loading Spinner */
+.loading-spinner {
+    display: none;
+    text-align: center;
+    padding: 2rem;
+}
+
+.loading-spinner i {
+    font-size: 3rem;
+    color: #0d6efd;
+}
+
+/* Direction Cards */
+.direction-card {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.direction-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.direction-card.selected {
+    background-color: #0d6efd;
+    color: white;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .map-container {
+        height: 300px;
+    }
+    
+    .chart-container {
+        height: 300px;
+    }
+} 

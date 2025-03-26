@@ -1,13 +1,117 @@
 import folium
 from folium import plugins
-from typing import Dict, List
+from typing import Dict, List, Optional
 import pandas as pd
 from flask import current_app
 import os
 
 class VisualizationService:
     def __init__(self):
-        self.upload_folder = current_app.config['UPLOAD_FOLDER']
+        self._upload_folder = None
+        self._df = None
+    
+    @property
+    def upload_folder(self):
+        if self._upload_folder is None:
+            with current_app.app_context():
+                self._upload_folder = current_app.config['UPLOAD_FOLDER']
+        return self._upload_folder
+    
+    def load_data(self, filename: str) -> bool:
+        """Load data from CSV file."""
+        try:
+            file_path = os.path.join(self.upload_folder, filename)
+            self._df = pd.read_csv(file_path)
+            return True
+        except Exception as e:
+            current_app.logger.error(f"Error loading data: {str(e)}")
+            return False
+    
+    def create_map(self, center_point: Dict[str, float], points: List[Dict], 
+                  directions: Optional[List[str]] = None) -> str:
+        """Create an interactive map visualization."""
+        try:
+            # Create base map centered on reference point
+            m = folium.Map(
+                location=[center_point['latitude'], center_point['longitude']],
+                zoom_start=12,
+                tiles='OpenStreetMap'
+            )
+            
+            # Add reference point
+            folium.Marker(
+                [center_point['latitude'], center_point['longitude']],
+                popup='Reference Point',
+                icon=folium.Icon(color='red', icon='info-sign')
+            ).add_to(m)
+            
+            # Add direction-based points
+            colors = {
+                'north': 'blue',
+                'south': 'green',
+                'east': 'purple',
+                'west': 'orange'
+            }
+            
+            for direction, points_list in points.items():
+                if directions and direction not in directions:
+                    continue
+                    
+                for point in points_list:
+                    folium.CircleMarker(
+                        location=[point['latitude'], point['longitude']],
+                        radius=8,
+                        popup=f"Address: {point['address']}<br>Contribution: ${point['contribution']:,.2f}",
+                        color=colors.get(direction, 'gray'),
+                        fill=True,
+                        fill_color=colors.get(direction, 'gray')
+                    ).add_to(m)
+            
+            # Add legend
+            legend_html = '''
+                <div style="position: fixed; bottom: 50px; left: 50px; z-index: 1000; background-color: white; padding: 10px; border: 2px solid grey; border-radius: 5px;">
+                    <h4>Legend</h4>
+                    <div><i class="fa fa-circle" style="color: red"></i> Reference Point</div>
+            '''
+            for direction in directions or []:
+                color = colors.get(direction, 'gray')
+                legend_html += f'<div><i class="fa fa-circle" style="color: {color}"></i> {direction.capitalize()}</div>'
+            legend_html += '</div>'
+            m.get_root().html.add_child(folium.Element(legend_html))
+            
+            # Save map to a temporary file
+            map_file = os.path.join(self.upload_folder, 'temp_map.html')
+            m.save(map_file)
+            
+            return map_file
+            
+        except Exception as e:
+            current_app.logger.error(f"Error creating map visualization: {str(e)}")
+            return None
+    
+    def create_chart_data(self, data: Dict) -> Dict:
+        """Create data for charts."""
+        try:
+            chart_data = {
+                'directions': {
+                    'labels': [],
+                    'counts': [],
+                    'totals': [],
+                    'averages': []
+                }
+            }
+            
+            for direction, stats in data['statistics'].items():
+                chart_data['directions']['labels'].append(direction.capitalize())
+                chart_data['directions']['counts'].append(stats['count'])
+                chart_data['directions']['totals'].append(stats['total'])
+                chart_data['directions']['averages'].append(stats['average'])
+            
+            return chart_data
+            
+        except Exception as e:
+            current_app.logger.error(f"Error creating chart data: {str(e)}")
+            return {}
     
     def generate_map_data(self, analysis_id: str) -> Dict:
         """Generate map data for visualization."""
